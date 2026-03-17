@@ -12,15 +12,18 @@ from .models import Calendar, Event
 
 console = Console()
 
+# 계정별 구분 색상 팔레트
 ACCOUNT_COLORS = [
     "cyan", "magenta", "green", "yellow", "blue",
     "red", "bright_cyan", "bright_magenta", "bright_green", "bright_yellow",
 ]
 
+# 계정 이름 → 색상 매핑 캐시 (등록 순서대로 할당)
 _color_map: dict[str, str] = {}
 
 
 def _get_account_color(account_name: str) -> str:
+    """계정별 고유 색상 반환. 순서대로 팔레트에서 순환 할당."""
     if account_name not in _color_map:
         idx = len(_color_map) % len(ACCOUNT_COLORS)
         _color_map[account_name] = ACCOUNT_COLORS[idx]
@@ -88,15 +91,12 @@ def print_week(events: list[Event], weeks: int = 1, start_date: date | None = No
     if start_date is None:
         start_date = date.today()
 
-    # Align to week start
-    weekday = start_date.weekday()  # 0=Monday
+    # 주 시작일로 정렬 (월요일 또는 일요일)
+    weekday = start_date.weekday()  # 0=월요일
     if monday_start:
         start_date = start_date - timedelta(days=weekday)
     else:
-        # Sunday start
         start_date = start_date - timedelta(days=(weekday + 1) % 7)
-
-    total_days = weeks * 7
 
     for week_offset in range(weeks):
         week_start = start_date + timedelta(days=week_offset * 7)

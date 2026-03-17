@@ -12,6 +12,7 @@ from .accounts import add_account, list_accounts, remove_account
 from .api import add_event, delete_event, get_all_events, list_calendars, quick_add, search_events
 from .display import console, print_agenda, print_calendars, print_month, print_week
 
+# 자연어 날짜 파싱용 인스턴스 (모듈 로드 시 1회 생성)
 _pdt_calendar = parsedatetime.Calendar()
 
 
@@ -137,6 +138,7 @@ def calendar_list(account: str | None, calendar_filter: tuple[str, ...]):
         except Exception as e:
             console.print(f"[red]Error ({name}):[/red] {e}")
 
+    # 캘린더 이름 부분 문자열 필터 (대소문자 무시, OR 조건)
     if calendar_filter:
         all_cals = [
             cal for cal in all_cals

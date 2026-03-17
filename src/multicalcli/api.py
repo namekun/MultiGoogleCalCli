@@ -9,6 +9,7 @@ from dateutil import parser as dateutil_parser
 from dateutil import tz
 from googleapiclient.discovery import build
 
+# 모든 이벤트 시간은 KST로 변환하여 표시
 KST = tz.gettz("Asia/Seoul")
 logger = logging.getLogger(__name__)
 
@@ -16,6 +17,7 @@ from . import config
 from .auth import load_credentials
 from .models import Calendar, Event
 
+# 계정별 API 서비스 객체 캐시 (중복 생성 방지)
 _service_cache: dict[str, Any] = {}
 
 
@@ -49,6 +51,7 @@ def list_calendars(account_name: str) -> list[Calendar]:
             .execute()
         )
         for item in result.get("items", []):
+            # summaryOverride: 사용자가 Google Calendar 웹에서 변경한 이름 우선
             display_name = item.get("summaryOverride") or item.get("summary", item["id"])
             calendars.append(Calendar(
                 id=item["id"],
@@ -67,9 +70,11 @@ def list_calendars(account_name: str) -> list[Calendar]:
 
 def _parse_event_time(time_obj: dict) -> tuple[datetime, bool]:
     """Parse a Google Calendar time object. Returns (datetime, is_all_day) in KST."""
+    # 종일 이벤트: "date" 필드만 존재 (시간 없음)
     if "date" in time_obj:
         dt = datetime.strptime(time_obj["date"], "%Y-%m-%d")
         return dt.replace(tzinfo=KST), True
+    # 시간 이벤트: "dateTime" 필드, KST로 변환
     dt = dateutil_parser.parse(time_obj["dateTime"])
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=timezone.utc)
@@ -98,7 +103,7 @@ def get_events(
     if time_max is None:
         time_max = time_min + timedelta(days=5)
 
-    # Use provided name or fetch from API as fallback
+    # 캘린더 이름 결정: 전달받은 이름이 없으면 API로 조회 (fallback)
     if calendar_name is None:
         cal_name = calendar_id
         try:
@@ -131,6 +136,7 @@ def get_events(
         result = service.events().list(**params).execute()
 
         for item in result.get("items", []):
+            # 취소된 이벤트 제외
             if item.get("status") == "cancelled":
                 continue
 
@@ -200,6 +206,7 @@ def get_all_events(
         calendars = list_calendars(name)
         events = []
         for cal in calendars:
+            # freeBusyReader 제외: 일정 세부 정보 조회 불가
             if cal.access_role in ("owner", "writer", "reader") and _match_calendar(cal):
                 events.extend(get_events(
                     name,
@@ -211,6 +218,7 @@ def get_all_events(
                 ))
         return events
 
+    # 멀티 계정 병렬 조회 (최대 5개 동시)
     with ThreadPoolExecutor(max_workers=5) as executor:
         futures = {
             executor.submit(_fetch_account, name): name

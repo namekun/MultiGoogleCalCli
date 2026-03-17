@@ -10,6 +10,7 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 
 from . import config
 
+# Google Calendar 전체 읽기/쓰기 권한
 SCOPES = ["https://www.googleapis.com/auth/calendar"]
 
 
@@ -21,6 +22,7 @@ def save_credentials(account_name: str, creds: Credentials):
     """Save credentials as JSON for an account."""
     token_path = _token_path(account_name)
     token_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    # pickle 대신 JSON으로 저장 (디버깅/이식성)
     data = {
         "token": creds.token,
         "refresh_token": creds.refresh_token,
@@ -29,6 +31,7 @@ def save_credentials(account_name: str, creds: Credentials):
         "client_secret": creds.client_secret,
         "scopes": list(creds.scopes) if creds.scopes else SCOPES,
     }
+    # 파일 권한 0o600: 소유자만 읽기/쓰기 (토큰 보안)
     fd = os.open(str(token_path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     try:
         os.write(fd, json.dumps(data, indent=2).encode())
@@ -52,6 +55,7 @@ def load_credentials(account_name: str) -> Credentials | None:
         scopes=data.get("scopes", SCOPES),
     )
 
+    # 토큰 만료 시 refresh_token으로 자동 갱신
     if creds.expired and creds.refresh_token:
         creds.refresh(Request())
         save_credentials(account_name, creds)

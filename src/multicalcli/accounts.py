@@ -9,9 +9,10 @@ def add_account(name: str) -> str:
     if (account_dir / "token.json").exists():
         raise ValueError(f"Account '{name}' already exists. Remove it first.")
 
+    # OAuth 브라우저 인증 플로우 실행
     creds = auth.authenticate(name)
 
-    # Fetch the account email for display
+    # 인증된 이메일 주소를 표시용으로 조회
     from googleapiclient.discovery import build
     service = build("calendar", "v3", credentials=creds)
     calendar = service.calendars().get(calendarId="primary").execute()
