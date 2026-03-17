@@ -1,22 +1,25 @@
 """Google Calendar API wrapper with multi-account support."""
 
+import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
+from typing import Any
 
 from dateutil import parser as dateutil_parser
 from dateutil import tz
+from googleapiclient.discovery import build
 
 KST = tz.gettz("Asia/Seoul")
-from googleapiclient.discovery import build
+logger = logging.getLogger(__name__)
 
 from . import config
 from .auth import load_credentials
 from .models import Calendar, Event
 
-_service_cache: dict[str, object] = {}
+_service_cache: dict[str, Any] = {}
 
 
-def get_service(account_name: str):
+def get_service(account_name: str) -> Any:
     """Get or create a Calendar API service for an account."""
     if account_name in _service_cache:
         return _service_cache[account_name]
@@ -79,8 +82,15 @@ def get_events(
     time_max: datetime | None = None,
     query: str | None = None,
     calendar_id: str = "primary",
+    calendar_name: str | None = None,
 ) -> list[Event]:
-    """Get events from a specific calendar."""
+    """Get events from a specific calendar.
+
+    Args:
+        calendar_name: Display name for the calendar. If provided, skips
+            the extra API call to resolve the name. Callers that already
+            have calendar metadata (e.g. get_all_events) should pass this.
+    """
     service = get_service(account_name)
 
     if time_min is None:
@@ -88,17 +98,20 @@ def get_events(
     if time_max is None:
         time_max = time_min + timedelta(days=5)
 
-    # Get calendar name for display (prefer user's override name)
-    cal_name = calendar_id
-    try:
-        cal_entry = service.calendarList().get(calendarId=calendar_id).execute()
-        cal_name = cal_entry.get("summaryOverride") or cal_entry.get("summary", calendar_id)
-    except Exception:
+    # Use provided name or fetch from API as fallback
+    if calendar_name is None:
+        cal_name = calendar_id
         try:
-            cal_info = service.calendars().get(calendarId=calendar_id).execute()
-            cal_name = cal_info.get("summary", calendar_id)
+            cal_entry = service.calendarList().get(calendarId=calendar_id).execute()
+            cal_name = cal_entry.get("summaryOverride") or cal_entry.get("summary", calendar_id)
         except Exception:
-            pass
+            try:
+                cal_info = service.calendars().get(calendarId=calendar_id).execute()
+                cal_name = cal_info.get("summary", calendar_id)
+            except Exception:
+                pass
+    else:
+        cal_name = calendar_name
 
     events = []
     page_token = None
@@ -194,6 +207,7 @@ def get_all_events(
                     time_max=time_max,
                     query=query,
                     calendar_id=cal.id,
+                    calendar_name=cal.summary,
                 ))
         return events
 
@@ -206,16 +220,8 @@ def get_all_events(
             try:
                 all_events.extend(future.result())
             except Exception as e:
-                account = futures[future]
-                all_events.append(Event(
-                    id="error",
-                    summary=f"[Error: {account}] {e}",
-                    start=datetime.now(timezone.utc),
-                    end=datetime.now(timezone.utc),
-                    account_name=account,
-                    calendar_id="",
-                    status="error",
-                ))
+                account_name = futures[future]
+                logger.error("Failed to fetch events for account '%s': %s", account_name, e)
 
     all_events.sort(key=lambda e: e.start)
     return all_events
@@ -294,7 +300,7 @@ def add_event(
     )
 
 
-def delete_event(account_name: str, event_id: str, calendar_id: str = "primary"):
+def delete_event(account_name: str, event_id: str, calendar_id: str = "primary") -> None:
     """Delete an event."""
     service = get_service(account_name)
     service.events().delete(

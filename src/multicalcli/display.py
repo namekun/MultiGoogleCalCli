@@ -72,8 +72,6 @@ def print_agenda(events: list[Event], military: bool = True):
                 time_str = f"{start}-{end}"
 
             summary = event.summary
-            if event.status == "error":
-                summary = f"[red]{summary}[/red]"
 
             location_str = ""
             if event.location:

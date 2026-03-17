@@ -1,17 +1,30 @@
 """CLI entry point for multicalcli."""
 
-from datetime import datetime, timedelta, timezone
+import calendar as cal_mod
+from datetime import date, datetime, timedelta, timezone
 
 import click
-from rich.console import Console
+import parsedatetime
 from rich.table import Table
 
-console = Console()
+from . import config
+from .accounts import add_account, list_accounts, remove_account
+from .api import add_event, delete_event, get_all_events, list_calendars, quick_add, search_events
+from .display import console, print_agenda, print_calendars, print_month, print_week
+
+_pdt_calendar = parsedatetime.Calendar()
+
+
+def _parse_natural_date(text: str, source_time: datetime | None = None) -> datetime:
+    """Parse natural language date string into a UTC datetime."""
+    if source_time is None:
+        source_time = datetime.now(timezone.utc)
+    result, _ = _pdt_calendar.parseDT(text, sourceTime=source_time)
+    return result.replace(tzinfo=timezone.utc)
 
 
 def _resolve_accounts(account: str | None) -> list[str]:
     """Resolve account name(s) to use."""
-    from . import config
     if account:
         names = config.list_account_names()
         if account not in names:
@@ -23,7 +36,6 @@ def _resolve_accounts(account: str | None) -> list[str]:
 
 def _require_account(account: str | None) -> str:
     """Require a specific account for write operations."""
-    from . import config
     if account:
         return account
     cfg = config.load_config()
@@ -53,9 +65,6 @@ def account():
 @click.argument("name")
 def account_add(name: str):
     """Add a new Google account. Opens browser for OAuth login."""
-    from .accounts import add_account
-    from . import config
-
     client_secret = config.get_client_secret()
     if not client_secret:
         console.print(
@@ -83,8 +92,6 @@ def account_add(name: str):
 @click.confirmation_option(prompt="Are you sure you want to remove this account?")
 def account_remove(name: str):
     """Remove a registered account."""
-    from .accounts import remove_account
-
     try:
         remove_account(name)
         console.print(f"[green]Removed[/green] account [cyan]{name}[/cyan]")
@@ -96,8 +103,6 @@ def account_remove(name: str):
 @account.command("list")
 def account_list():
     """List all registered accounts."""
-    from .accounts import list_accounts
-
     accounts = list_accounts()
     if not accounts:
         console.print(
@@ -124,9 +129,6 @@ def account_list():
 @click.option("-c", "--calendar", "calendar_filter", multiple=True, help="Filter by calendar name (substring match, repeatable)")
 def calendar_list(account: str | None, calendar_filter: tuple[str, ...]):
     """List calendars from all accounts."""
-    from .api import list_calendars
-    from .display import print_calendars
-
     accounts = _resolve_accounts(account)
     all_cals = []
     for name in accounts:
@@ -153,24 +155,10 @@ def calendar_list(account: str | None, calendar_filter: tuple[str, ...]):
 @click.option("-c", "--calendar", "calendar_filter", multiple=True, help="Filter by calendar name (substring match, repeatable)")
 def agenda(start: str | None, end: str | None, account: str | None, calendar_filter: tuple[str, ...]):
     """Show upcoming events (default: next 5 days)."""
-    from .api import get_all_events
-    from .display import print_agenda
-    import parsedatetime
-
-    cal = parsedatetime.Calendar()
     now = datetime.now(timezone.utc)
 
-    if start:
-        result, _ = cal.parseDT(start, sourceTime=now)
-        time_min = result.replace(tzinfo=timezone.utc)
-    else:
-        time_min = now
-
-    if end:
-        result, _ = cal.parseDT(end, sourceTime=now)
-        time_max = result.replace(tzinfo=timezone.utc)
-    else:
-        time_max = time_min + timedelta(days=5)
+    time_min = _parse_natural_date(start, now) if start else now
+    time_max = _parse_natural_date(end, now) if end else time_min + timedelta(days=5)
 
     accounts = _resolve_accounts(account)
     cal_filter = list(calendar_filter) if calendar_filter else None
@@ -186,10 +174,6 @@ def agenda(start: str | None, end: str | None, account: str | None, calendar_fil
 @click.option("-c", "--calendar", "calendar_filter", multiple=True, help="Filter by calendar name (substring match, repeatable)")
 def week(weeks: int, account: str | None, calendar_filter: tuple[str, ...]):
     """Show weekly calendar grid."""
-    from datetime import date
-    from .api import get_all_events
-    from .display import print_week
-
     now = datetime.now(timezone.utc)
     time_max = now + timedelta(weeks=weeks)
 
@@ -206,13 +190,7 @@ def week(weeks: int, account: str | None, calendar_filter: tuple[str, ...]):
 @click.option("-c", "--calendar", "calendar_filter", multiple=True, help="Filter by calendar name (substring match, repeatable)")
 def month(account: str | None, calendar_filter: tuple[str, ...]):
     """Show monthly calendar grid."""
-    from datetime import date
-    from .api import get_all_events
-    from .display import print_month
-
     today = date.today()
-    first = today.replace(day=1)
-    import calendar as cal_mod
     _, last_day = cal_mod.monthrange(today.year, today.month)
 
     time_min = datetime(today.year, today.month, 1, tzinfo=timezone.utc)
@@ -231,8 +209,6 @@ def month(account: str | None, calendar_filter: tuple[str, ...]):
 @click.option("-a", "--account", default=None, help="Account to add event to")
 def quick(text: str, account: str | None):
     """Quick-add event using natural language."""
-    from .api import quick_add
-
     name = _require_account(account)
     console.print(f"Adding to [cyan]{name}[/cyan]: {text}")
 
@@ -264,21 +240,11 @@ def quick(text: str, account: str | None):
 @click.option("-a", "--account", default=None, help="Account to add event to")
 def add(title, when, duration, end_time, where, description, who, allday, account):
     """Add a new event."""
-    from .api import add_event
-    import parsedatetime
-
     name = _require_account(account)
-    cal = parsedatetime.Calendar()
     now = datetime.now(timezone.utc)
 
-    result, _ = cal.parseDT(when, sourceTime=now)
-    start = result.replace(tzinfo=timezone.utc)
-
-    if end_time:
-        result, _ = cal.parseDT(end_time, sourceTime=now)
-        end = result.replace(tzinfo=timezone.utc)
-    else:
-        end = start + timedelta(minutes=duration)
+    start = _parse_natural_date(when, now)
+    end = _parse_natural_date(end_time, now) if end_time else start + timedelta(minutes=duration)
 
     try:
         event = add_event(
@@ -306,9 +272,6 @@ def add(title, when, duration, end_time, where, description, who, allday, accoun
 @click.option("-c", "--calendar", "calendar_filter", multiple=True, help="Filter by calendar name (substring match, repeatable)")
 def search(text: str, account: str | None, calendar_filter: tuple[str, ...]):
     """Search events across all accounts."""
-    from .api import search_events
-    from .display import print_agenda
-
     accounts = _resolve_accounts(account)
     cal_filter = list(calendar_filter) if calendar_filter else None
     events = search_events(text, account_names=accounts, calendar_filter=cal_filter)
@@ -325,8 +288,6 @@ def search(text: str, account: str | None, calendar_filter: tuple[str, ...]):
 @click.option("-a", "--account", default=None, help="Account to delete from")
 def delete(text: str, account: str | None):
     """Search and delete an event."""
-    from .api import search_events, delete_event
-
     name = _require_account(account)
     events = search_events(text, account_names=[name])
 
