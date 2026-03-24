@@ -8,7 +8,7 @@ import parsedatetime
 from rich.table import Table
 
 from . import config
-from .accounts import add_account, list_accounts, remove_account
+from .accounts import add_account, list_accounts, reauth_account, remove_account
 from .api import add_event, delete_event, get_all_events, list_calendars, quick_add, search_events
 from .display import console, print_agenda, print_calendars, print_month, print_week
 
@@ -96,6 +96,24 @@ def account_remove(name: str):
     try:
         remove_account(name)
         console.print(f"[green]Removed[/green] account [cyan]{name}[/cyan]")
+    except ValueError as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise SystemExit(1)
+
+
+@account.command("reauth")
+@click.argument("name")
+def account_reauth(name: str):
+    """Re-authenticate an existing account. Opens browser for OAuth login."""
+    console.print(f"Re-authenticating account [cyan]{name}[/cyan]...")
+    console.print("Browser will open for Google login.")
+
+    try:
+        email = reauth_account(name)
+        console.print(
+            f"[green]Success![/green] Account [cyan]{name}[/cyan] "
+            f"re-authenticated as [yellow]{email}[/yellow]"
+        )
     except ValueError as e:
         console.print(f"[red]Error:[/red] {e}")
         raise SystemExit(1)
