@@ -27,6 +27,24 @@ def add_account(name: str) -> str:
     return email
 
 
+def reauth_account(name: str) -> str:
+    """Re-authenticate an existing account. Returns authenticated email."""
+    if name not in config.list_account_names():
+        raise ValueError(f"Account '{name}' not found.")
+
+    # 기존 토큰 삭제 후 OAuth 재인증
+    token_path = config.get_account_dir(name) / "token.json"
+    if token_path.exists():
+        token_path.unlink()
+
+    creds = auth.authenticate(name)
+
+    from googleapiclient.discovery import build
+    service = build("calendar", "v3", credentials=creds)
+    calendar = service.calendars().get(calendarId="primary").execute()
+    return calendar.get("id", "unknown")
+
+
 def remove_account(name: str):
     """Remove an account and its credentials."""
     if name not in config.list_account_names():
